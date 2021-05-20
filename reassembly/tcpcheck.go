@@ -117,9 +117,10 @@ func (t *TCPOptionCheck) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir TC
 // - no check on sequence number is performed
 // - no RST
 type TCPSimpleFSM struct {
-	dir     TCPFlowDirection
-	state   int
-	options TCPSimpleFSMOptions
+	dir        TCPFlowDirection
+	state      int
+	options    TCPSimpleFSMOptions
+	serverHost string
 }
 
 // TCPSimpleFSMOptions holds options for TCPSimpleFSM
@@ -142,6 +143,14 @@ func NewTCPSimpleFSM(options TCPSimpleFSMOptions) *TCPSimpleFSM {
 	return &TCPSimpleFSM{
 		state:   TCPStateClosed,
 		options: options,
+	}
+}
+
+func NewTCPSimpleFSM2(options TCPSimpleFSMOptions, serverHost string) *TCPSimpleFSM {
+	return &TCPSimpleFSM{
+		state:      TCPStateClosed,
+		options:    options,
+		serverHost: serverHost,
 	}
 }
 
@@ -178,6 +187,96 @@ func (t *TCPSimpleFSM) CheckState(tcp *layers.TCP, dir TCPFlowDirection) bool {
 			t.dir = dir.Reverse()
 		default:
 			t.state = TCPStateEstablished
+		}
+	}
+
+	switch t.state {
+	/* openning connection */
+	case TCPStateClosed:
+		if tcp.SYN && !tcp.ACK {
+			t.dir = dir
+			t.state = TCPStateSynSent
+			return true
+		}
+	case TCPStateSynSent:
+		if tcp.RST {
+			t.state = TCPStateReset
+			return true
+		}
+
+		if tcp.SYN && tcp.ACK && dir == t.dir.Reverse() {
+			t.state = TCPStateEstablished
+			return true
+		}
+		if tcp.SYN && !tcp.ACK && dir == t.dir {
+			// re-transmission
+			return true
+		}
+	/* established */
+	case TCPStateEstablished:
+		if tcp.RST {
+			t.state = TCPStateReset
+			return true
+		}
+
+		if tcp.FIN {
+			t.state = TCPStateCloseWait
+			t.dir = dir
+			return true
+		}
+		// accept any packet
+		return true
+	/* closing connection */
+	case TCPStateCloseWait:
+		if tcp.RST {
+			t.state = TCPStateReset
+			return true
+		}
+
+		if tcp.FIN && tcp.ACK && dir == t.dir.Reverse() {
+			t.state = TCPStateLastAck
+			return true
+		}
+		if tcp.ACK {
+			return true
+		}
+	case TCPStateLastAck:
+		if tcp.RST {
+			t.state = TCPStateReset
+			return true
+		}
+
+		if tcp.ACK && t.dir == dir {
+			t.state = TCPStateClosed
+			return true
+		}
+	}
+	return false
+}
+
+// CheckState returns false if tcp is invalid wrt current state or update the state machine's state
+func (t *TCPSimpleFSM) CheckState2(net *gopacket.Flow, tcp *layers.TCP, dir TCPFlowDirection) bool {
+	if t.state == TCPStateClosed && t.options.SupportMissingEstablishment && !(tcp.SYN && !tcp.ACK) {
+		/* try to figure out state */
+		switch true {
+		case tcp.SYN && tcp.ACK:
+			t.state = TCPStateSynSent
+			t.dir = dir.Reverse()
+		case tcp.FIN && !tcp.ACK:
+			t.state = TCPStateEstablished
+		case tcp.FIN && tcp.ACK:
+			t.state = TCPStateCloseWait
+			t.dir = dir.Reverse()
+		default:
+			t.state = TCPStateEstablished
+			src, dst := net.Endpoints()
+			if src.String() == t.serverHost {
+				t.dir = TCPDirServerToClient
+			} else if dst.String() == t.serverHost {
+				t.dir = TCPDirClientToServer
+			} else {
+				// ???
+			}
 		}
 	}
 
