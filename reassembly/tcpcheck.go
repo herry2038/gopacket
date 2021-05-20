@@ -271,9 +271,9 @@ func (t *TCPSimpleFSM) CheckState2(net *gopacket.Flow, tcp *layers.TCP, dir TCPF
 			t.state = TCPStateEstablished
 			src, dst := net.Endpoints()
 			if src.String() == t.serverHost {
-				t.dir = TCPDirServerToClient
+				t.dir = dir.Reverse()
 			} else if dst.String() == t.serverHost {
-				t.dir = TCPDirClientToServer
+				t.dir = dir
 			} else {
 				// ???
 			}
