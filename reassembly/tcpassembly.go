@@ -701,6 +701,9 @@ func (a *Assembler) AssembleWithContext(netFlow gopacket.Flow, t *layers.TCP, ac
 				log.Printf("%v start forced", key)
 			}
 			half.nextSeq = seq
+			if !half.dir {
+				half.nextSeq++
+			}
 			action.queue = false
 		} else {
 			if *debugLog {
