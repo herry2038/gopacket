@@ -657,7 +657,10 @@ func (a *Assembler) AssembleWithContext(netFlow gopacket.Flow, t *layers.TCP, ac
 	if half.lastSeen.Before(timestamp) {
 		half.lastSeen = timestamp
 	}
-	a.start = half.nextSeq == invalidSequence && t.SYN
+
+	//a.start = half.nextSeq == invalidSequence && t.SYN
+	// 20210521 a.start 优化成为只要是第一个包，我就认为是开始
+	a.start = half.nextSeq == invalidSequence
 	if *debugLog {
 		if half.nextSeq < rev.ackSeq {
 			log.Printf("Delay detected on %v, data is acked but not assembled yet (acked %v, nextSeq %v)", key, rev.ackSeq, half.nextSeq)
